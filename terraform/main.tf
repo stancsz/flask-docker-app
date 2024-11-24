@@ -13,13 +13,23 @@ resource "google_storage_bucket" "flask_app_bucket" {
 # Step 2: Create a tarball of the app using `local-exec`
 resource "null_resource" "package_app" {
   provisioner "local-exec" {
-    command = "tar -czf ${path.module}/${var.app_archive_name} -C ${path.module}/../app ."
+    command = <<EOT
+    # Create the tarball
+    tar -czf ${path.module}/${var.app_archive_name} -C ${path.module}/../app .
+
+    # Wait until the tarball is created
+    while [ ! -f ${path.module}/${var.app_archive_name} ]; do
+      echo "Waiting for tarball to be created..."
+      sleep 1
+    done
+    echo "Tarball created successfully."
+    EOT
   }
 }
 
 # Step 3: Upload the Flask app tarball to GCS
 resource "google_storage_bucket_object" "flask_app" {
-  depends_on = [null_resource.package_app, google_storage_bucket.flask_app_bucket] # Ensure the tarball and bucket are created first
+  depends_on = [null_resource.package_app, google_storage_bucket.flask_app_bucket]
   name       = var.app_archive_name
   bucket     = google_storage_bucket.flask_app_bucket.name
   source     = "${path.module}/${var.app_archive_name}"
@@ -43,17 +53,34 @@ resource "google_service_account" "vm_service_account" {
 # Grant bucket-specific access to the service account
 resource "google_storage_bucket_iam_member" "flask_app_bucket_access" {
   bucket     = google_storage_bucket.flask_app_bucket.name
-  role       = "roles/storage.objectViewer" # Provides read-only access to bucket objects
+  role       = "roles/storage.objectViewer"
   member     = "serviceAccount:${google_service_account.vm_service_account.email}"
   depends_on = [google_storage_bucket.flask_app_bucket, google_service_account.vm_service_account]
 }
 
+# Step 5: Create a firewall rule to allow external traffic to port 8080
+resource "google_compute_firewall" "allow_flask_app" {
+  name    = "allow-flask-app"
+  network = "default"
+
+  allow {
+    protocol = "tcp"
+    ports    = ["8080"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
+  target_tags   = ["flask-app"]
+}
+
 # Step 6: Create the VM instance
 resource "google_compute_instance" "flask_docker_vm" {
-  depends_on   = [google_storage_bucket_object.flask_app] # Ensure app is uploaded to GCS first
-  name         = var.vm_name
+  depends_on = [google_storage_bucket_object.flask_app]
+  name       = var.vm_name
   machine_type = var.vm_machine_type
   zone         = "us-central1-a"
+  allow_stopping_for_update = true
+
+  tags = ["flask-app"]
 
   boot_disk {
     initialize_params {
@@ -63,7 +90,7 @@ resource "google_compute_instance" "flask_docker_vm" {
 
   network_interface {
     network = "default"
-    access_config {} # Assign a public IP
+    access_config {}
   }
 
   metadata = {
