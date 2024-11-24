@@ -2,3 +2,4 @@
 __pycache__
 .dockerignore
 *.tar.gz
+*.terraform.lock.hcl

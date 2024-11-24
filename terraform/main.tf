@@ -25,24 +25,27 @@ resource "google_storage_bucket_object" "flask_app" {
   source     = "${path.module}/${var.app_archive_name}"
 }
 
+# Cleanup step: Remove local tarball after upload
+resource "null_resource" "cleanup_local_tarball" {
+  depends_on = [google_storage_bucket_object.flask_app]
+
+  provisioner "local-exec" {
+    command = "rm -f ${path.module}/${var.app_archive_name}"
+  }
+}
+
 # Step 4: Create a service account for the VM
 resource "google_service_account" "vm_service_account" {
   account_id   = "${var.vm_name}-sa"
   display_name = "Service Account for ${var.vm_name}"
 }
 
-# Step 5: Grant storage access to the service account
-resource "google_project_iam_member" "storage_access" {
-  project = var.project_id
-  role    = "roles/storage.objectViewer"
-  member  = "serviceAccount:${google_service_account.vm_service_account.email}"
-}
-
-# Add permissions for the specific service account
+# Grant bucket-specific access to the service account
 resource "google_storage_bucket_iam_member" "flask_app_bucket_access" {
-  bucket = google_storage_bucket.flask_app_bucket.name
-  role   = "roles/storage.objectViewer" # Provides read-only access to bucket objects
-  member = "serviceAccount:flask-docker-vm-sa@${var.project_id}.iam.gserviceaccount.com"
+  bucket     = google_storage_bucket.flask_app_bucket.name
+  role       = "roles/storage.objectViewer" # Provides read-only access to bucket objects
+  member     = "serviceAccount:${google_service_account.vm_service_account.email}"
+  depends_on = [google_storage_bucket.flask_app_bucket, google_service_account.vm_service_account]
 }
 
 # Step 6: Create the VM instance
