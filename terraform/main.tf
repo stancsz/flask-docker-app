@@ -8,6 +8,7 @@ resource "google_storage_bucket" "flask_app_bucket" {
   name          = var.gcs_bucket_name
   location      = var.region
   storage_class = "STANDARD"
+  force_destroy = true
 }
 
 # Step 2: Create a tarball of the app using `local-exec`
