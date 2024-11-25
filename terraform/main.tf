@@ -14,19 +14,14 @@ resource "google_storage_bucket" "flask_app_bucket" {
 # Step 2: Create a tarball of the app using `local-exec`
 resource "null_resource" "package_app" {
   provisioner "local-exec" {
-    command = <<EOT
-    # Create the tarball
-    tar -czf ${path.module}/${var.app_archive_name} -C ${path.module}/../app .
+    command = "python package_app.py"
+  }
 
-    # Wait until the tarball is created
-    while [ ! -f ${path.module}/${var.app_archive_name} ]; do
-      echo "Waiting for tarball to be created..."
-      sleep 1
-    done
-    echo "Tarball created successfully."
-    EOT
+  triggers = {
+    app_checksum = filesha256("${path.module}/../app/app.py") # Adjust for any key file to track changes
   }
 }
+
 
 # Step 3: Upload the Flask app tarball to GCS
 resource "google_storage_bucket_object" "flask_app" {
@@ -41,7 +36,7 @@ resource "null_resource" "cleanup_local_tarball" {
   depends_on = [google_storage_bucket_object.flask_app]
 
   provisioner "local-exec" {
-    command = "rm -f ${path.module}/${var.app_archive_name}"
+    command = "python cleanup_tarball.py"
   }
 }
 
